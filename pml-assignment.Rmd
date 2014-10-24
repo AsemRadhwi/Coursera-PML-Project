@@ -1,0 +1,112 @@
+---
+title: "Predicting Exercise Behavior from Wearable Devices Data"
+author: "Asem Radhwi"
+date: "Wednesday, October 22, 2014"
+output: html_document
+---
+###Objective
+The objective of this machine learning exercise is to predict the classification of the exercise from the data provided from the sensors in: http://groupware.les.inf.puc-rio.br/har
+
+###Loading Required Libraries
+```{r, message=FALSE}
+library(caret)
+library(ggplot2)
+library(randomForest)
+library(rattle)
+```
+
+###Data Loading and Cleaning
+First, we read in the raw data. After looking at the data, we remove the NA columns, and the first seven columns as they are extra, and non-required in our prediction.
+```{r}
+#Read raw data in
+rawData <- read.csv('pml-training.csv', header = TRUE, na.strings=c("NA",""))
+
+#Remove extra columns
+data <- rawData[,-1:-7]
+
+#Remove bad columns
+naTest <- sapply(data, function(x){sum(is.na(x))})
+table(naTest)
+badColumns <- names(naTest[naTest!=0])
+data = data[, !names(data) %in% badColumns]
+
+```
+
+Now, there are 19622 rows with 53 variables. The predicted variable is classe, and the levels are 5 classes. The data will be splitted into training (70%) and testing (30%) datasets to build our models.
+
+```{r}
+table(data$classe)
+set.seed(3333)
+inTrain <- createDataPartition(y=data$classe, p=0.7, list=FALSE)
+training <- data[inTrain,]
+testing <- data[-inTrain,]
+```
+
+We see that the dimensions of the training and the testing match up the original dataset.
+```{r}
+dim(training)
+dim(testing)
+dim(training)[1] + dim(testing)[1] == dim(data)[1]
+dim(training)[2]==dim(data)[2]
+dim(testing)[2]==dim(data)[2]
+```
+
+###Building the Model
+I have experimented with many prediction algorithms: rpart, rf, boosting, svm, gbm, lda, and lasso. Fortunately, although time-consuming, I chose the Random Forest prediction algorithm here because they don't overfit with many input variables like the others. Check more from here: https://www.stat.berkeley.edu/~breiman/RandomForests/cc_home.htm
+
+```{r}
+##Run for an hour, then save the model for later reuse.
+#modFitRF <- train(classe ~ ., data=training, method="rf", prox=TRUE)
+#saveRDS('modFitRF.rds')
+
+#Fetch previously saved model
+modFitRF <- readRDS('modFitRF.rds')
+modFitRF
+```
+
+###Model Evaluation
+```{r}
+#Run the predictions on the testing dataset
+predictionsRF <- predict(modFitRF, newdata=testing)
+
+#Error Rate
+sum(predictionsRF!=testing$classe)/length(testing$classe)
+RFA <- confusionMatrix(predictionsRF, testing$classe)
+RFA
+```
+
+
+###Variable Importance
+We can see that the roll_belt is the most imortant variable in the dataset.
+```{r}
+imp <- varImp(modFitRF)$importance
+imp
+imp$var <- reorder(row.names(imp), -imp$Overall)
+ggplot(data=imp, aes(x=var, y=Overall)) + geom_bar(stat="identity") + theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+
+
+###Run Model on Hidden Testing Dataset
+The model ran on the testing dataset given in pml-testing.csv. The results when submitted were 100% accurate.
+
+```{r}
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+rawTesting <- read.csv('pml-testing.csv', header = TRUE, na.strings=c("NA",""))
+dataTesting <- rawTesting[,-1:-7]
+dataTesting = dataTesting[, !names(dataTesting) %in% badColumns]
+
+
+predictionsRF <- predict(modFitRF, newdata=dataTesting)
+pml_write_files(predictionsRF)
+
+```
+###Conclusions
+Random Forests proved to be very accurate in this exercise. I have not experimented with pre-processing techniques because I felt the accuracy without them to be very high.
